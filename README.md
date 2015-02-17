@@ -18,7 +18,7 @@ Get the latest version [here](https://bitbucket.org/decalage/oledump-contrib/get
 
 ### olevba plugin
 
-oledump plugin to run the olevba scanning engine.
+oledump plugin to run the [olevba](https://bitbucket.org/decalage/oletools/wiki/olevba) scanning engine.
 
 Main features:
 - Detect auto-executable macros
