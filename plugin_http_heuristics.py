@@ -2,8 +2,8 @@
 
 __description__ = 'HTTP Heuristics plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.3'
-__date__ = '2015/02/09'
+__version__ = '0.0.4'
+__date__ = '2015/02/16'
 
 """
 
@@ -20,6 +20,7 @@ History:
   2014/12/12: added BruteforceDecode
   2015/02/02: 0.0.3 added base64
   2015/02/09: bugfix BruteforceDecode when empty string; added StringsPerLine
+  2015/02/16: 0.0.4 added rot13
 
 Todo:
 """
@@ -74,6 +75,9 @@ class cHTTPHeuristics(cPluginParent):
 
         return result
 
+    def Strings(self):
+        return re.compile(r'"([^"]+)"').findall(self.stream)
+
     # Concatenate all strings found on the same line
     def StringsPerLine(self):
         result = []
@@ -113,6 +117,11 @@ class cHTTPHeuristics(cPluginParent):
 
         if resultHttp == []:
             resultHttp = [line for line in self.BruteforceDecode(result) if line.lower().startswith('http:')]
+
+        if resultHttp == []:
+            resultHttp = [line.decode('rot13') for line in self.Strings() if 'http:' in line.decode('rot13').lower()]
+        else:
+            return resultHttp
 
         if resultHttp == []:
             resultHttp = [line for line in self.StringsPerLine() if 'http:' in line.lower()]
