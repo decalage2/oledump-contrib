@@ -2,8 +2,8 @@
 
 __description__ = 'Process command'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.7'
-__date__ = '2015/02/09'
+__version__ = '0.0.8'
+__date__ = '2015/02/10'
 
 """
 
@@ -31,6 +31,7 @@ History:
   2014/12/26: added printing of filename OLE files inside ZIP
   2014/12/31: suppressed printing of filename when selecting
   2015/02/09: 0.0.7: added handling of .docx, ... inside ZIP file; Added option yarastrings
+  2015/02/10: 0.0.8: added YARACompile
 
 Todo:
 """
@@ -488,6 +489,18 @@ def OLESub(ole, prefix, rules, options):
                     break
             counter += 1
 
+def YARACompile(fileordirname):
+    dFilepaths = {}
+    if os.path.isdir(fileordirname):
+        for root, dirs, files in os.walk(fileordirname):
+            for file in files:
+                filename = os.path.join(root, file)
+                dFilepaths[filename] = filename
+    else:
+        for filename in ProcessAt(fileordirname):
+            dFilepaths[filename] = filename
+    return yara.compile(filepaths=dFilepaths)
+
 def OLEDump(filename, options):
     global plugins
     plugins = []
@@ -506,7 +519,7 @@ def OLEDump(filename, options):
         if not 'yara' in sys.modules:
             print('Error: option yara requires the YARA Python module.')
             return
-        rules = yara.compile(filepath=options.yara)
+        rules = YARACompile(options.yara)
 
     if filename == '':
         IfWIN32SetBinary(sys.stdin)
