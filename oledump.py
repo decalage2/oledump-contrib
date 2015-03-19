@@ -2,8 +2,8 @@
 
 __description__ = 'Process command'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.8'
-__date__ = '2015/02/10'
+__version__ = '0.0.12'
+__date__ = '2015/03/13'
 
 """
 
@@ -32,6 +32,13 @@ History:
   2014/12/31: suppressed printing of filename when selecting
   2015/02/09: 0.0.7: added handling of .docx, ... inside ZIP file; Added option yarastrings
   2015/02/10: 0.0.8: added YARACompile
+  2015/02/19: 0.0.9: added option -q
+  2015/02/23: 0.0.10: handle errors in compressed macros
+  2015/02/24: continue
+  2015/03/02: 0.0.11: added option -M
+  2015/03/05: added support for .xml files
+  2015/03/11: 0.0.12: added code pages identification
+  2015/03/13: Fixed oElement.firstChild.nodeValue UnicodeEncodeError bug
 
 Todo:
 """
@@ -43,6 +50,8 @@ import os
 import zipfile
 import cStringIO
 import binascii
+import xml.dom.minidom
+import zlib
 try:
     import yara
 except:
@@ -175,6 +184,8 @@ def Bin(number):
     return result
 
 def DecompressChunk(compressedChunk):
+    if len(compressedChunk) < 2:
+        return None, None
     header = ord(compressedChunk[0]) + ord(compressedChunk[1]) * 0x100
     size = (header & 0x0FFF) + 3
     flagCompressed = header & 0x8000
@@ -190,6 +201,8 @@ def DecompressChunk(compressedChunk):
             if len(token) == 1:
                 decompressedChunk += token
             else:
+                if decompressedChunk == '':
+                    return None, None
                 numberOfOffsetBits = OffsetBits(decompressedChunk)
                 copyToken = ord(token[0]) + ord(token[1]) * 0x100
                 offset = 1 + (copyToken >> (16 - numberOfOffsetBits))
@@ -214,16 +227,28 @@ def Decompress(compressedData):
     decompressed = ''
     while len(remainder) != 0:
         decompressedChunk, remainder = DecompressChunk(remainder)
+        if decompressedChunk == None:
+            return None
         decompressed += decompressedChunk
     return decompressed
 
-def SearchAndDecompress(data):
-    position = data.find('\x00Attribut')
+def FindCompression(data):
+    searchString = '\x00Attribut'
+    position = data.find(searchString)
+    if position != -1 and data[position + len(searchString)] == 'e':
+        position = -1
+    return position
+
+def SearchAndDecompressSub(data):
+    position = FindCompression(data)
     if position == -1:
         compressedData = data
     else:
         compressedData = data[position - 3:]
-    result = Decompress(compressedData)
+    return Decompress(compressedData)
+
+def SearchAndDecompress(data):
+    result = SearchAndDecompressSub(data)
     if result == None:
         return 'Error: unable to decompress'
     else:
@@ -401,9 +426,198 @@ def MacrosContainsOnlyAttributes(stream):
             return False
     return True
 
+#https://msdn.microsoft.com/en-us/library/windows/desktop/dd317756%28v=vs.85%29.aspx
+dCodepages = {
+    037: 'IBM EBCDIC US-Canada',
+    437: 'OEM United States',
+    500: 'IBM EBCDIC International',
+    708: 'Arabic (ASMO 708)',
+    709: 'Arabic (ASMO-449+, BCON V4)',
+    710: 'Arabic - Transparent Arabic',
+    720: 'Arabic (Transparent ASMO); Arabic (DOS)',
+    737: 'OEM Greek (formerly 437G); Greek (DOS)',
+    775: 'OEM Baltic; Baltic (DOS)',
+    850: 'OEM Multilingual Latin 1; Western European (DOS)',
+    852: 'OEM Latin 2; Central European (DOS)',
+    855: 'OEM Cyrillic (primarily Russian)',
+    857: 'OEM Turkish; Turkish (DOS)',
+    858: 'OEM Multilingual Latin 1 + Euro symbol',
+    860: 'OEM Portuguese; Portuguese (DOS)',
+    861: 'OEM Icelandic; Icelandic (DOS)',
+    862: 'OEM Hebrew; Hebrew (DOS)',
+    863: 'OEM French Canadian; French Canadian (DOS)',
+    864: 'OEM Arabic; Arabic (864)',
+    865: 'OEM Nordic; Nordic (DOS)',
+    866: 'OEM Russian; Cyrillic (DOS)',
+    869: 'OEM Modern Greek; Greek, Modern (DOS)',
+    870: 'IBM EBCDIC Multilingual/ROECE (Latin 2); IBM EBCDIC Multilingual Latin 2',
+    874: 'ANSI/OEM Thai (ISO 8859-11); Thai (Windows)',
+    875: 'IBM EBCDIC Greek Modern',
+    932: 'ANSI/OEM Japanese; Japanese (Shift-JIS)',
+    936: 'ANSI/OEM Simplified Chinese (PRC, Singapore); Chinese Simplified (GB2312)',
+    949: 'ANSI/OEM Korean (Unified Hangul Code)',
+    950: 'ANSI/OEM Traditional Chinese (Taiwan; Hong Kong SAR, PRC); Chinese Traditional (Big5)',
+    1026: 'IBM EBCDIC Turkish (Latin 5)',
+    1047: 'IBM EBCDIC Latin 1/Open System',
+    1140: 'IBM EBCDIC US-Canada (037 + Euro symbol); IBM EBCDIC (US-Canada-Euro)',
+    1141: 'IBM EBCDIC Germany (20273 + Euro symbol); IBM EBCDIC (Germany-Euro)',
+    1142: 'IBM EBCDIC Denmark-Norway (20277 + Euro symbol); IBM EBCDIC (Denmark-Norway-Euro)',
+    1143: 'IBM EBCDIC Finland-Sweden (20278 + Euro symbol); IBM EBCDIC (Finland-Sweden-Euro)',
+    1144: 'IBM EBCDIC Italy (20280 + Euro symbol); IBM EBCDIC (Italy-Euro)',
+    1145: 'IBM EBCDIC Latin America-Spain (20284 + Euro symbol); IBM EBCDIC (Spain-Euro)',
+    1146: 'IBM EBCDIC United Kingdom (20285 + Euro symbol); IBM EBCDIC (UK-Euro)',
+    1147: 'IBM EBCDIC France (20297 + Euro symbol); IBM EBCDIC (France-Euro)',
+    1148: 'IBM EBCDIC International (500 + Euro symbol); IBM EBCDIC (International-Euro)',
+    1149: 'IBM EBCDIC Icelandic (20871 + Euro symbol); IBM EBCDIC (Icelandic-Euro)',
+    1200: 'Unicode UTF-16, little endian byte order (BMP of ISO 10646); available only to managed applications',
+    1201: 'Unicode UTF-16, big endian byte order; available only to managed applications',
+    1250: 'ANSI Central European; Central European (Windows)',
+    1251: 'ANSI Cyrillic; Cyrillic (Windows)',
+    1252: 'ANSI Latin 1; Western European (Windows)',
+    1253: 'ANSI Greek; Greek (Windows)',
+    1254: 'ANSI Turkish; Turkish (Windows)',
+    1255: 'ANSI Hebrew; Hebrew (Windows)',
+    1256: 'ANSI Arabic; Arabic (Windows)',
+    1257: 'ANSI Baltic; Baltic (Windows)',
+    1258: 'ANSI/OEM Vietnamese; Vietnamese (Windows)',
+    1361: 'Korean (Johab)',
+    10000: 'MAC Roman; Western European (Mac)',
+    10001: 'Japanese (Mac)',
+    10002: 'MAC Traditional Chinese (Big5); Chinese Traditional (Mac)',
+    10003: 'Korean (Mac)',
+    10004: 'Arabic (Mac)',
+    10005: 'Hebrew (Mac)',
+    10006: 'Greek (Mac)',
+    10007: 'Cyrillic (Mac)',
+    10008: 'MAC Simplified Chinese (GB 2312); Chinese Simplified (Mac)',
+    10010: 'Romanian (Mac)',
+    10017: 'Ukrainian (Mac)',
+    10021: 'Thai (Mac)',
+    10029: 'MAC Latin 2; Central European (Mac)',
+    10079: 'Icelandic (Mac)',
+    10081: 'Turkish (Mac)',
+    10082: 'Croatian (Mac)',
+    12000: 'Unicode UTF-32, little endian byte order; available only to managed applications',
+    12001: 'Unicode UTF-32, big endian byte order; available only to managed applications',
+    20000: 'CNS Taiwan; Chinese Traditional (CNS)',
+    20001: 'TCA Taiwan',
+    20002: 'Eten Taiwan; Chinese Traditional (Eten)',
+    20003: 'IBM5550 Taiwan',
+    20004: 'TeleText Taiwan',
+    20005: 'Wang Taiwan',
+    20105: 'IA5 (IRV International Alphabet No. 5, 7-bit); Western European (IA5)',
+    20106: 'IA5 German (7-bit)',
+    20107: 'IA5 Swedish (7-bit)',
+    20108: 'IA5 Norwegian (7-bit)',
+    20127: 'US-ASCII (7-bit)',
+    20261: 'T.61',
+    20269: 'ISO 6937 Non-Spacing Accent',
+    20273: 'IBM EBCDIC Germany',
+    20277: 'IBM EBCDIC Denmark-Norway',
+    20278: 'IBM EBCDIC Finland-Sweden',
+    20280: 'IBM EBCDIC Italy',
+    20284: 'IBM EBCDIC Latin America-Spain',
+    20285: 'IBM EBCDIC United Kingdom',
+    20290: 'IBM EBCDIC Japanese Katakana Extended',
+    20297: 'IBM EBCDIC France',
+    20420: 'IBM EBCDIC Arabic',
+    20423: 'IBM EBCDIC Greek',
+    20424: 'IBM EBCDIC Hebrew',
+    20833: 'IBM EBCDIC Korean Extended',
+    20838: 'IBM EBCDIC Thai',
+    20866: 'Russian (KOI8-R); Cyrillic (KOI8-R)',
+    20871: 'IBM EBCDIC Icelandic',
+    20880: 'IBM EBCDIC Cyrillic Russian',
+    20905: 'IBM EBCDIC Turkish',
+    20924: 'IBM EBCDIC Latin 1/Open System (1047 + Euro symbol)',
+    20932: 'Japanese (JIS 0208-1990 and 0212-1990)',
+    20936: 'Simplified Chinese (GB2312); Chinese Simplified (GB2312-80)',
+    20949: 'Korean Wansung',
+    21025: 'IBM EBCDIC Cyrillic Serbian-Bulgarian',
+    21027: '(deprecated)',
+    21866: 'Ukrainian (KOI8-U); Cyrillic (KOI8-U)',
+    28591: 'ISO 8859-1 Latin 1; Western European (ISO)',
+    28592: 'ISO 8859-2 Central European; Central European (ISO)',
+    28593: 'ISO 8859-3 Latin 3',
+    28594: 'ISO 8859-4 Baltic',
+    28595: 'ISO 8859-5 Cyrillic',
+    28596: 'ISO 8859-6 Arabic',
+    28597: 'ISO 8859-7 Greek',
+    28598: 'ISO 8859-8 Hebrew; Hebrew (ISO-Visual)',
+    28599: 'ISO 8859-9 Turkish',
+    28603: 'ISO 8859-13 Estonian',
+    28605: 'ISO 8859-15 Latin 9',
+    29001: 'Europa 3',
+    38598: 'ISO 8859-8 Hebrew; Hebrew (ISO-Logical)',
+    50220: 'ISO 2022 Japanese with no halfwidth Katakana; Japanese (JIS)',
+    50221: 'ISO 2022 Japanese with halfwidth Katakana; Japanese (JIS-Allow 1 byte Kana)',
+    50222: 'ISO 2022 Japanese JIS X 0201-1989; Japanese (JIS-Allow 1 byte Kana - SO/SI)',
+    50225: 'ISO 2022 Korean',
+    50227: 'ISO 2022 Simplified Chinese; Chinese Simplified (ISO 2022)',
+    50229: 'ISO 2022 Traditional Chinese',
+    50930: 'EBCDIC Japanese (Katakana) Extended',
+    50931: 'EBCDIC US-Canada and Japanese',
+    50933: 'EBCDIC Korean Extended and Korean',
+    50935: 'EBCDIC Simplified Chinese Extended and Simplified Chinese',
+    50936: 'EBCDIC Simplified Chinese',
+    50937: 'EBCDIC US-Canada and Traditional Chinese',
+    50939: 'EBCDIC Japanese (Latin) Extended and Japanese',
+    51932: 'EUC Japanese',
+    51936: 'EUC Simplified Chinese; Chinese Simplified (EUC)',
+    51949: 'EUC Korean',
+    51950: 'EUC Traditional Chinese',
+    52936: 'HZ-GB2312 Simplified Chinese; Chinese Simplified (HZ)',
+    54936: 'Windows XP and later: GB18030 Simplified Chinese (4 byte); Chinese Simplified (GB18030)',
+    57002: 'ISCII Devanagari',
+    57003: 'ISCII Bengali',
+    57004: 'ISCII Tamil',
+    57005: 'ISCII Telugu',
+    57006: 'ISCII Assamese',
+    57007: 'ISCII Oriya',
+    57008: 'ISCII Kannada',
+    57009: 'ISCII Malayalam',
+    57010: 'ISCII Gujarati',
+    57011: 'ISCII Punjabi',
+    65000: 'Unicode (UTF-7)',
+    65001: 'Unicode (UTF-8)'
+}
+
+def LookupCodepage(codepage):
+    if codepage in dCodepages:
+        return dCodepages[codepage]
+    else:
+        return ''
+
+def MyRepr(stringArg):
+    stringRepr = repr(stringArg)
+    if "'" + stringArg + "'" != stringRepr:
+        return stringRepr
+    else:
+        return stringArg
+
 def OLESub(ole, prefix, rules, options):
     global plugins
     global decoders
+
+    if options.metadata:
+        metadata = ole.get_metadata()
+        print('Properties SummaryInformation:')
+        for attribute in metadata.SUMMARY_ATTRIBS:
+            value = getattr(metadata, attribute)
+            if value != None:
+                if attribute == 'codepage':
+                    print(' %s: %s %s' % (attribute, value, LookupCodepage(value)))
+                else:
+                    print(' %s: %s' % (attribute, value))
+        print('Properties DocumentSummaryInformation:')
+        for attribute in metadata.DOCSUM_ATTRIBS:
+            value = getattr(metadata, attribute)
+            if value != None:
+                if attribute == 'codepage_doc':
+                    print(' %s: %s %s' % (attribute, value, LookupCodepage(value)))
+                else:
+                    print(' %s: %s' % (attribute, value))
+        return
 
     if options.select == '':
         counter = 1
@@ -417,12 +631,16 @@ def OLESub(ole, prefix, rules, options):
             elif ole.get_type(fname) == 2:
                 stream = ole.openstream(fname).read()
                 lenghString = '%7d' % len(stream)
-                macroPresent = '\x00Attribut' in stream
+                macroPresent = FindCompression(stream) != -1
                 if macroPresent:
-                    indicator = 'M'
-                    if MacrosContainsOnlyAttributes(stream):
-                        indicator = 'm'
-            print('%3s: %s %s %s' % (('%s%d' % (prefix, counter)), indicator, lenghString, PrintableName(fname)))
+                    if SearchAndDecompressSub(stream) == None:
+                        indicator = 'E'
+                    else:
+                        indicator = 'M'
+                        if MacrosContainsOnlyAttributes(stream):
+                            indicator = 'm'
+            if not options.quiet:
+                print('%3s: %s %s %s' % (('%s%d' % (prefix, counter)), indicator, lenghString, PrintableName(fname)))
             for cPlugin in plugins:
                 try:
                     if cPlugin.macroOnly and macroPresent:
@@ -439,9 +657,13 @@ def OLESub(ole, prefix, rules, options):
                 if oPlugin != None:
                     result = oPlugin.Analyze()
                     if oPlugin.ran:
-                        print('               Plugin: %s ' % oPlugin.name)
-                        for line in result:
-                            print('                 ' + line)
+                        if options.quiet:
+                            for line in result:
+                                print(MyRepr(line))
+                        else:
+                            print('               Plugin: %s ' % oPlugin.name)
+                            for line in result:
+                                print('                 ' + MyRepr(line))
             counter += 1
             if options.yara != None:
                 oDecoders = [cIdentity(stream, None)]
@@ -533,8 +755,13 @@ def OLEDump(filename, options):
     else:
         oStringIO = cStringIO.StringIO(open(filename, 'rb').read())
 
-    magic = oStringIO.read(4)
-    if magic[0:2] == 'PK':
+    magic = oStringIO.read(6)
+    oStringIO.seek(0)
+    if magic[0:4] == OLEFILE_MAGIC:
+        ole = OleFileIO_PL.OleFileIO(oStringIO)
+        OLESub(ole, '', rules, options)
+        ole.close()
+    elif magic[0:2] == 'PK':
         oZipfile = zipfile.ZipFile(oStringIO, 'r')
         counter = 0
         for info in oZipfile.infolist():
@@ -544,18 +771,45 @@ def OLEDump(filename, options):
                 letter = chr(ord('A') + counter)
                 counter += 1
                 if options.select == '':
-                    print('%s: %s' % (letter, info.filename))
+                    if not options.quiet:
+                        print('%s: %s' % (letter, info.filename))
                 ole = OleFileIO_PL.OleFileIO(cStringIO.StringIO(content))
                 OLESub(ole, letter, rules, options)
                 ole.close()
             oZipContent.close()
         oZipfile.close()
-    elif magic != OLEFILE_MAGIC:
-        print('Error: %s is not a valid OLE file.' % filename)
     else:
-        ole = OleFileIO_PL.OleFileIO(oStringIO)
-        OLESub(ole, '', rules, options)
-        ole.close()
+        data = oStringIO.read()
+        oStringIO.seek(0)
+        if '<?xml' in data:
+            oXML = xml.dom.minidom.parse(oStringIO)
+            counter = 0
+            for oElement in oXML.getElementsByTagName('*'):
+                if oElement.firstChild and oElement.firstChild.nodeValue:
+                    try:
+                        data = binascii.a2b_base64(oElement.firstChild.nodeValue)
+                    except binascii.Error:
+                        data = ''
+                    except UnicodeEncodeError:
+                        data = ''
+                    if data.startswith('ActiveMime'):
+                        content = zlib.decompress(data[50:])
+                        if content[0:4] == OLEFILE_MAGIC:
+                            letter = chr(ord('A') + counter)
+                            counter += 1
+                            if options.select == '':
+                                if not options.quiet:
+                                    nameValue = ''
+                                    for key, value in oElement.attributes.items():
+                                        if key.endswith(':name'):
+                                            nameValue = value
+                                            break
+                                    print('%s: %s' % (letter, nameValue))
+                            ole = OleFileIO_PL.OleFileIO(cStringIO.StringIO(content))
+                            OLESub(ole, letter, rules, options)
+                            ole.close()
+        else:
+            print('Error: %s is not a valid OLE file.' % filename)
 
 def Main():
     oParser = optparse.OptionParser(usage='usage: %prog [options] [file]\n' + __description__, version='%prog ' + __version__)
@@ -569,10 +823,12 @@ def Main():
     oParser.add_option('-i', '--info', action='store_true', default=False, help='print extra info for selected item')
     oParser.add_option('-p', '--plugins', type=str, default='', help='plugins to load (separate plugins with a comma , ; @file supported)')
     oParser.add_option('--pluginoptions', type=str, default='', help='options for the plugin')
+    oParser.add_option('-q', '--quiet', action='store_true', default=False, help='only print output from plugins')
     oParser.add_option('-y', '--yara', help="YARA rule to check streams (YARA search doesn't work with -s option)")
     oParser.add_option('-D', '--decoders', type=str, default='', help='decoders to load (separate decoders with a comma , ; @file supported)')
     oParser.add_option('--decoderoptions', type=str, default='', help='options for the decoder')
     oParser.add_option('--yarastrings', action='store_true', default=False, help='Print YARA strings')
+    oParser.add_option('-M', '--metadata', action='store_true', default=False, help='Print metadata')
     (options, args) = oParser.parse_args()
 
     if len(args) > 1:
