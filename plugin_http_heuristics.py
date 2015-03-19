@@ -2,8 +2,8 @@
 
 __description__ = 'HTTP Heuristics plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.4'
-__date__ = '2015/02/16'
+__version__ = '0.0.5'
+__date__ = '2015/02/25'
 
 """
 
@@ -21,6 +21,7 @@ History:
   2015/02/02: 0.0.3 added base64
   2015/02/09: bugfix BruteforceDecode when empty string; added StringsPerLine
   2015/02/16: 0.0.4 added rot13
+  2015/02/25: 0.0.5 joined lines ending with _ for Chr analysis
 
 Todo:
 """
@@ -97,7 +98,7 @@ class cHTTPHeuristics(cPluginParent):
 
         oREChr = re.compile(r'((Chr[W\$]?\(\d+\)(\s*&\s*)?)+)')
         oREDigits = re.compile(r'\d+')
-        for foundTuple in oREChr.findall(self.stream):
+        for foundTuple in oREChr.findall(self.stream.replace('_\r\n', '')):
             for foundString in foundTuple:
                 chrString = ''.join(map(lambda x: chr(int(x)), oREDigits.findall(foundString)))
                 if chrString != '':

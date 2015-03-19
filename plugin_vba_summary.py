@@ -2,8 +2,8 @@
 
 __description__ = 'VBA summary plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.1'
-__date__ = '2014/12/11'
+__version__ = '0.0.2'
+__date__ = '2015/03/11'
 
 """
 
@@ -13,6 +13,7 @@ Use at your own risk
 
 History:
   2014/12/11: start
+  2015/03/11: 0.0.2 stripping \r
 
 Todo:
 """
@@ -30,6 +31,6 @@ class cVBASummary(cPluginParent):
     def Analyze(self):
         self.ran = True
 
-        return [line for line in self.stream.split('\n') if '"' in line or 'sub' in line.lower() or 'function' in line.lower()]
+        return [line.strip('\r') for line in self.stream.split('\n') if '"' in line or 'sub' in line.lower() or 'function' in line.lower()]
 
 AddPlugin(cVBASummary)
