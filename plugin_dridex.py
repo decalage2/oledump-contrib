@@ -2,8 +2,8 @@
 
 __description__ = 'Dridex plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.2'
-__date__ = '2015/02/16'
+__version__ = '0.0.5'
+__date__ = '2015/02/26'
 
 """
 
@@ -14,6 +14,9 @@ Use at your own risk
 History:
   2015/02/12: start, based on sample 6beaa39b2a1d3d896c5e2fd277c227dd
   2015/02/16: added OlFdL0IOXbF, based on sample f1c80a738722554b91452c59adb2f27d
+  2015/02/19: added NewQkeTzIIHM, based on sample d927f8cff07f87c3c3f748604ab35896
+  2015/02/25: 0.0.4 added Xor FF, based on sample f3c3fbeed637cccc7549636b7e0f7cdb
+  2015/02/26: 0.0.5 added Step2, based on sample 33c5ad38ad766d4e748ee3752fc4c292
 
 Todo:
 """
@@ -87,8 +90,29 @@ def MakePositive(value1, value2):
         value1 += value2
     return value1
 
-def OlFdL0IOXbF(InputData,NumKey):
+def OlFdL0IOXbF(InputData, NumKey):
     return ''.join([chr(MakePositive(ord(c), 256) - NumKey) for c in InputData])
+
+def NewQkeTzIIHM(InputData):
+    return ''.join([chr(ord(c) - 13) for c in InputData])
+
+def lqjWjFO(strData, strKey):
+    result = ''
+    for iIter in range(len(strData)):
+        if iIter < len(strKey):
+            result += chr(ord(strData[iIter]) - ord(strKey[iIter]))
+        else:
+            result += chr(ord(strData[iIter]) - ord(strKey[iIter % (len(strKey) - 1)]))
+    return result
+
+def Xor(data, key):
+    return ''.join([chr(ord(c) ^ key) for c in data])
+
+def Step(data, step):
+    result = ''
+    for iIter in range(0, len(data), step):
+        result += data[iIter]
+    return result
 
 def ContainsString(listStrings, key):
     for aString in listStrings:
@@ -110,27 +134,33 @@ class cDridexDecoder(cPluginParent):
         self.ran = True
 
         oREString = re.compile(r'"([^"\n]+)"')
+        foundStrings = oREString.findall(self.stream)
 
-        result = []
-        for foundString in oREString.findall(self.stream):
-            try:
-                result.append(RoV(foundString))
-            except:
-                pass
+        for DecodingFunction in [RoV, lambda s:OlFdL0IOXbF(s, 61), NewQkeTzIIHM, lambda s:Xor(s, 0xFF), lambda s:Step(s, 2)]:
+            result = []
+            for foundString in foundStrings:
+                try:
+                    result.append(DecodingFunction(foundString))
+                except:
+                    pass
 
-        if ContainsString(result, 'http'):
-            return result
+            if ContainsString(result, 'http'):
+                return result
 
-        result = []
-        for foundString in oREString.findall(self.stream):
-            try:
-                result.append(OlFdL0IOXbF(foundString, 61))
-            except:
-                pass
+        foundStringsSmall = [foundString for foundString in foundStrings if len(foundString) <= 10]
+        foundStringsLarge = [foundString for foundString in foundStrings if len(foundString) > 10]
+        for foundStringSmall in foundStringsSmall:
+            for DecodingFunction in [lqjWjFO]:
+                result = []
+                for foundStringLarge in foundStringsLarge:
+                    try:
+                        result.append(DecodingFunction(foundStringLarge, foundStringSmall))
+                    except:
+                        pass
 
-        if ContainsString(result, 'http'):
-            return result
-        else:
-            return []
+                if ContainsString(result, 'http'):
+                    return result
+
+        return []
 
 AddPlugin(cDridexDecoder)
