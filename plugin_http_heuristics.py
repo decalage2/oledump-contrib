@@ -2,8 +2,8 @@
 
 __description__ = 'HTTP Heuristics plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.5'
-__date__ = '2015/02/25'
+__version__ = '0.0.8'
+__date__ = '2015/04/01'
 
 """
 
@@ -22,6 +22,9 @@ History:
   2015/02/09: bugfix BruteforceDecode when empty string; added StringsPerLine
   2015/02/16: 0.0.4 added rot13
   2015/02/25: 0.0.5 joined lines ending with _ for Chr analysis
+  2015/03/18: 0.0.6 also handle empty strings
+  2015/03/23: 0.0.7 fixed regression bug Heuristics
+  2015/04/01: 0.0.8 added PreProcess
 
 Todo:
 """
@@ -29,28 +32,39 @@ Todo:
 import re
 import binascii
 
+def ReplaceFunction(match):
+    try:
+        return '(%d)' % eval(match.group(0))
+    except:
+        return match.group(0)
+
 class cHTTPHeuristics(cPluginParent):
     macroOnly = True
     name = 'HTTP Heuristics plugin'
 
     def __init__(self, name, stream, options):
         self.streamname = name
+        self.streamOriginal = stream
         self.stream = stream
         self.options = options
         self.ran = False
 
-    def Heuristics(self, data):
+    def Heuristics(self, data, noDecode=False):
         if data.lower().startswith('http:'):
             return data
         if data[::-1].lower().startswith('http:'):
             return data[::-1]
+        if noDecode:
+            return data
         try:
             decoded = binascii.a2b_hex(data)
-            return self.Heuristics(decoded)
+            return self.Heuristics(decoded, True)
         except:
+            if not re.compile(r'^[0-9a-zA-Z/=]+$').match(data):
+                return data
             try:
                 decoded = binascii.a2b_base64(data)
-                return self.Heuristics(decoded)
+                return self.Heuristics(decoded, True)
             except:
                 return data
 
@@ -82,7 +96,7 @@ class cHTTPHeuristics(cPluginParent):
     # Concatenate all strings found on the same line
     def StringsPerLine(self):
         result = []
-        oREString = re.compile(r'"([^"]+)"')
+        oREString = re.compile(r'"([^"]*)"')
 
         for line in self.stream.split('\n'):
             stringsConcatenated = ''.join(oREString.findall(line))
@@ -91,18 +105,21 @@ class cHTTPHeuristics(cPluginParent):
 
         return result
 
+    def PreProcess(self):
+        self.stream = re.sub(r'(\(\s*(\d+|\d+\.\d+)\s*[+*/-]\s*(\d+|\d+\.\d+)\s*\))', ReplaceFunction, self.streamOriginal)
+
     def Analyze(self):
         self.ran = True
+        self.PreProcess()
 
         result = []
 
-        oREChr = re.compile(r'((Chr[W\$]?\(\d+\)(\s*&\s*)?)+)')
+        oREChr = re.compile(r'((chr[w\$]?\(\d+\)(\s*&\s*)?)+)', re.IGNORECASE)
         oREDigits = re.compile(r'\d+')
         for foundTuple in oREChr.findall(self.stream.replace('_\r\n', '')):
-            for foundString in foundTuple:
-                chrString = ''.join(map(lambda x: chr(int(x)), oREDigits.findall(foundString)))
-                if chrString != '':
-                    result.append(self.Heuristics(chrString))
+            chrString = ''.join(map(lambda x: chr(int(x)), oREDigits.findall(foundTuple[0])))
+            if chrString != '':
+                result.append(self.Heuristics(chrString))
 
         oREHexBase64 = re.compile(r'"([0-9a-zA-Z/=]+)"')
         for foundString in oREHexBase64.findall(self.stream):

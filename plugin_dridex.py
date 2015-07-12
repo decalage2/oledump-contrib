@@ -2,8 +2,8 @@
 
 __description__ = 'Dridex plugin for oledump.py'
 __author__ = 'Didier Stevens'
-__version__ = '0.0.5'
-__date__ = '2015/02/26'
+__version__ = '0.0.8'
+__date__ = '2015/05/14'
 
 """
 
@@ -17,11 +17,15 @@ History:
   2015/02/19: added NewQkeTzIIHM, based on sample d927f8cff07f87c3c3f748604ab35896
   2015/02/25: 0.0.4 added Xor FF, based on sample f3c3fbeed637cccc7549636b7e0f7cdb
   2015/02/26: 0.0.5 added Step2, based on sample 33c5ad38ad766d4e748ee3752fc4c292
+  2015/04/08: 0.0.6 added KALLKKKASKAJJAS, based on sample 491A146F5DE3592C7D959E2869F259EF
+  2015/04/09: 0.0.7 used KALLKKKASKAJJAS, based on sample 14C2795BCC35C3180649494EC2BC7877
+  2015/04/08: 0.0.8 added GQQSfwKSTdAvZbHNhpfK, based on sample 39B38CE4E2E8D843F88C3DF9124527FC
 
 Todo:
 """
 
 import re
+import binascii
 
 def RoV(InputStringToBeDecrypted):
     strTempText = InputStringToBeDecrypted
@@ -120,6 +124,29 @@ def ContainsString(listStrings, key):
             return True
     return False
 
+def IsHex(value):
+    return re.match(r'^([0-9a-f][0-9a-f])+$', value, re.IGNORECASE) != None
+
+def KALLKKKASKAJJAS(strKey, strData):
+    result = ''
+    encoded = binascii.a2b_hex(strData)
+    for iIter in range(len(encoded)):
+        result += chr(ord(encoded[iIter]) ^ ord(strKey[(((iIter + 1) % len(strKey)))]))
+    return result
+
+def GQQSfwKSTdAvZbHNhpfK(strData, strKey):
+    result = ''
+    dX = {x:0 for x in range(256)}
+    Y = 0
+    for iIter in range(256):
+        Y = (Y + dX[iIter] + ord(strKey[iIter % len(strKey)])) % 256
+        dX[iIter] = iIter
+    for iIter in range(len(strData)):
+        Y = (Y + dX[Y] + 1) % 256
+        result += chr(ord(strData[iIter]) ^ dX[dX[(Y + dX[Y]) % 254]])
+
+    return result
+
 class cDridexDecoder(cPluginParent):
     macroOnly = True
     name = 'Dridex decoder'
@@ -150,11 +177,37 @@ class cDridexDecoder(cPluginParent):
         foundStringsSmall = [foundString for foundString in foundStrings if len(foundString) <= 10]
         foundStringsLarge = [foundString for foundString in foundStrings if len(foundString) > 10]
         for foundStringSmall in foundStringsSmall:
-            for DecodingFunction in [lqjWjFO]:
+            for DecodingFunction in [lqjWjFO, GQQSfwKSTdAvZbHNhpfK]:
                 result = []
                 for foundStringLarge in foundStringsLarge:
                     try:
                         result.append(DecodingFunction(foundStringLarge, foundStringSmall))
+                    except:
+                        pass
+
+                if ContainsString(result, 'http:'):
+                    return result
+
+        foundStringsHex = [foundString for foundString in foundStrings if IsHex(foundString)]
+        foundStringsNotHex = [foundString for foundString in foundStrings if not IsHex(foundString)]
+        for foundStringNotHex in foundStringsNotHex:
+            for DecodingFunction in [KALLKKKASKAJJAS]:
+                result = []
+                for foundStringHex in foundStringsHex:
+                    try:
+                        result.append(DecodingFunction(foundStringNotHex, foundStringHex))
+                    except:
+                        pass
+
+                if ContainsString(result, 'http'):
+                    return result
+
+        for foundStringHex1 in foundStringsHex:
+            for DecodingFunction in [KALLKKKASKAJJAS]:
+                result = []
+                for foundStringHex2 in foundStringsHex:
+                    try:
+                        result.append(DecodingFunction(foundStringHex1, foundStringHex2))
                     except:
                         pass
 
